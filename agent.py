@@ -9,19 +9,19 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 BUFFER_SIZE = int(1e5)  # replay buffer size
-BATCH_SIZE = 64         # minibatch size
-GAMMA = 0.99            # discount factor
-LR = 5e-4               # learning rate
-TAU = 1e-3              # for soft update of target parameters
-UPDATE_EVERY = 4        # how often to update the network
-
+BATCH_SIZE = 64  # minibatch size
+GAMMA = 0.99  # discount factor
+LR = 5e-4  # learning rate
+TAU = 1e-3  # for soft update of target parameters
+UPDATE_EVERY = 4  # how often to update the network
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 class Agent():
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, seed, use_dueling=False, use_double=False):
+    def __init__(self, state_size, action_size, seed):
         """Initialize an Agent object.
 
         Params
@@ -29,20 +29,14 @@ class Agent():
             state_size (int): dimension of each state
             action_size (int): dimension of each action
             seed (int): random seed
-            use_dueling (bool): if 'True' use dueling agent
-            use_double (bool): if 'True' use double DDQN agent
         """
         self.state_size = state_size
         self.action_size = action_size
         self.seed = random.seed(seed)
-        self.use_dueling = use_dueling
-        self.use_double = use_double
 
         # Q-Network
-        self.qnetwork_local = QNetwork(state_size, action_size, seed,
-                                        use_dueling=use_dueling).to(device)
-        self.qnetwork_target = QNetwork(state_size, action_size, seed,
-                                        use_dueling=use_dueling).to(device)
+        self.qnetwork_local = QNetwork(state_size, action_size, seed).to(device)
+        self.qnetwork_target = QNetwork(state_size, action_size, seed).to(device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
 
         # Replay memory
@@ -94,20 +88,16 @@ class Agent():
         states, actions, rewards, next_states, dones = experiences
 
         # Get max predicted Q values (for next states) from target model
-        if self.use_double:
-            indices = torch.argmax(self.qnetwork_local(next_states).detach(),1)
-            Q_targets_next = self.qnetwork_target(next_states).detach().gather(1,indices.unsqueeze(1))
-        else:
-            Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
+        q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
 
         # Compute Q targets for current states
-        Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
+        q_targets = rewards + (gamma * q_targets_next * (1 - dones))
 
         # Get expected Q values from local model
-        Q_expected = self.qnetwork_local(states).gather(1, actions)
+        q_expected = self.qnetwork_local(states).gather(1, actions)
 
         # Compute loss
-        loss = F.mse_loss(Q_expected, Q_targets)
+        loss = F.mse_loss(q_expected, q_targets)
 
         # Minimize the loss
         self.optimizer.zero_grad()
@@ -128,7 +118,8 @@ class Agent():
             tau (float): interpolation parameter
         """
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
-            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
+            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
+
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
@@ -161,10 +152,12 @@ class ReplayBuffer:
         states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(device)
         actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).long().to(device)
         rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(device)
-        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(device)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+        next_states = torch.from_numpy(np.vstack([e.next_state for e in experiences if e is not None])).float().to(
+            device)
+        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(
+            device)
 
-        return (states, actions, rewards, next_states, dones)
+        return states, actions, rewards, next_states, dones
 
     def __len__(self):
         """Return the current size of internal memory."""
